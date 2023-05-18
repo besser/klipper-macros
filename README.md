@@ -74,6 +74,9 @@ printers. However, there are also some nice extras:
 * Verify your slicer settings and review that the gcode output is correct. Pay
   particular attention the initialization portions of the gcode and the
   parameters passed to PRINT_START.
+* Look for similar issues and post troubleshooting questions in the [Github Q&A
+  Discussion](
+  https://github.com/jschuh/klipper-macros/discussions/categories/q-a).
 
 # Reporting Bugs
 
@@ -87,8 +90,9 @@ them useful for handling bug reports.
 Some important things to remember when reporting bugs:
 
 * **Paste the full text of the command that triggered the error, along with any
-  error messages printed to the console** (and relevant sections of the klipper
-  logs if appropriate).
+  error messages printed to the console** and relevant sections of the klipper
+  logs if appropriate (and please [format this text as code](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#quoting-code),
+  otherwise Github will format it like a ransom note).
 * **Attach your config to the bug report.** There's generally no way to diagnose
   anything without the configs.
 * **Verify that your issue reproduces on the current, stock installation of
@@ -96,9 +100,8 @@ Some important things to remember when reporting bugs:
   make diagnosis nearly impossible.
 * Please don't treat bug reports as a substitute for following the installation
   and troubleshooting instructions.
-* If you file a feature request I will most likely close it (unless it's
-  something I was already planning on adding). Sorry, but I wrote these macros
-  to meet my own needs, so that's what I work on.
+* Please direct feature requests to the [Github Ideas Discussion](
+  https://github.com/jschuh/klipper-macros/discussions/categories/ideas).
 
 > **Note:** Reports that do not follow the above guidelines _**will likely be
 > closed without any other action taken.**_
@@ -240,8 +243,8 @@ into the relevant sections.
 #### Start G-code
 
 ```
-M190 S0
-M109 S0
+M190 S0 ; Not needed in Prusa Slicer 2.6 and later
+M109 S0 ; Not needed in Prusa Slicer 2.6 and later
 PRINT_START EXTRUDER={first_layer_temperature[initial_tool]} BED=[first_layer_bed_temperature] MESH_MIN={first_layer_print_min[0]},{first_layer_print_min[1]} MESH_MAX={first_layer_print_max[0]},{first_layer_print_max[1]} LAYERS={total_layer_count} NOZZLE_SIZE={nozzle_diameter[0]}
 
 ; This is the place to put slicer purge lines if you haven't set a non-zero
@@ -365,7 +368,7 @@ managed_services: klipper
 
 > **Note:** I'd advise against adding the auto-update entries to Moonraker until
 > you have everything working well, because it can make uninstallation a bit
-> harder due to how Moonraker's autoupdate behavior.
+> harder due to Moonraker's autoupdate behavior.
 
 ## Removal
 
@@ -419,9 +422,11 @@ are listed in [globals.cfg](globals.cfg#L5).
 `BED_MESH_CALIBRATE_FAST`
 
 Wraps the Klipper `BED_MESH_CALIBRATE` command to scale and redistribute the
-probe points so that only the appropriate area in `MESH_MIN` and `MESH_MAX` is probed. This can dramatically reduce probing times for anything that doesn't
-fill the first layer of the bed. `PRINT_START` will automatically use this for
-bed mesh calibration if a `[bed_mesh]` section is detected in your config.
+probe points so that only the appropriate area in `MESH_MIN` and `MESH_MAX` is
+probed. This can dramatically reduce probing times for anything that doesn't
+fill the first layer of the bed. If the `MESH_MIN` and `MESH_MAX` arguments
+are provided to `PRINT_START` it will automatically use this for bed mesh
+calibration (so long as a `[bed_mesh]` section is detected in your config).
 
 The following additional configuration options are available from
 [globals.cfg](globals.cfg#L5).
@@ -435,21 +440,30 @@ The following additional configuration options are available from
 
 > **Note:** See the [optional section](#bed-mesh) for additional macros.
 
-> **Note:** The bed mesh optimizations are silently disabled for delta printers
-  and when the mesh parameters include a [`RELATIVE_REFERENCE_INDEX`
-  ](https://www.klipper3d.org/Bed_Mesh.html#the-relative-reference-index)
-  (which is icnompatible with dynamic mesh generation).
+> **Note:** The bed mesh optimizations are silently disabled for delta printers.
+
+> **Note:** If the `bed_mesh` config includes a [`relative_reference_index`
+  ](https://www.klipper3d.org/Bed_Mesh.html#the-relative-reference-index) then
+  the index point selected in the optimized mesh will be the point closest to
+  the index point in the mesh from the config. However, if a
+  `RELATIVE_REFERENCE_INDEX` parameter is supplied directly to this macro it
+  will be used unmodified.
 
 `BED_MESH_CHECK`
 
-Checks the `[bed_mesh]` config and warns if `mesh_min` or `mesh_max` could allow
-a move out of range during `BED_MESH_CALIBRATE`. This is run implictily at
-Klipper startup and at the start of `BED_MESH_CALIBRATE`.
+* `ABORT` - Set to a non-zero value to abort macro processing on an error.
+* `MESH_MIN` - See Klipper documentation for `BED_MESH_CALIBRATE`.
+* `MESH_MAX` - See Klipper documentation for `BED_MESH_CALIBRATE`.
+
+Checks the `[bed_mesh]` config and optionally supplied parameters. Will warn
+(or optionally abort) if `mesh_min` or `mesh_max` could allow a move out of
+range during `BED_MESH_CALIBRATE`. This is run implictily at Klipper startup
+and as part of `BED_MESH_CALIBRATE_FAST`.
 
 ### Bed Surface
 
 Provides a set of macros for selecting different bed surfaces with
-correspdonding Z offset adjustments to compensate for their thickness. All
+corresponding Z offset adjustments to compensate for their thickness. All
 available surfaces must be listed in the `variable_bed_surfaces` array.
 Corresponding LCD menus for sheet selection and babystepping will be added to
 *Setup* and *Tune* if [`lcd_menus.cfg`](#lcd-menus) is included. Any Z offset
@@ -941,10 +955,10 @@ related commands, such as accelleration, jerk, and linear advance.
 
 ### Bed Mesh
 
-`BED_MESH_CALIBRATE` and `G20`
+`BED_MESH_CALIBRATE` and `G29`
 
 Overrides the default `BED_MESH_CALIBRATE` to use `BED_MESH_CALIBRATE_FAST`
-instead, and adds the `G20` command.
+instead, and adds the `G29` command.
 
 ***Configuration:***
 
