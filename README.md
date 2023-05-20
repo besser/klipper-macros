@@ -243,13 +243,22 @@ into the relevant sections.
 #### Start G-code
 
 ```
-M190 S0 ; Not needed in Prusa Slicer 2.6 and later
-M109 S0 ; Not needed in Prusa Slicer 2.6 and later
-PRINT_START EXTRUDER={first_layer_temperature[initial_tool]} BED=[first_layer_bed_temperature] MESH_MIN={first_layer_print_min[0]},{first_layer_print_min[1]} MESH_MAX={first_layer_print_max[0]},{first_layer_print_max[1]} LAYERS={total_layer_count} NOZZLE_SIZE={nozzle_diameter[0]}
+M190 S0 ; Remove this if autoemit_temperature_commands is off in Prusa Slicer 2.6 and later
+M109 S0 ; Remove this if autoemit_temperature_commands is off in Prusa Slicer 2.6 and later
+_PRINT_START_PHASE_INIT EXTRUDER={first_layer_temperature[initial_tool]} BED=[first_layer_bed_temperature] MESH_MIN={first_layer_print_min[0]},{first_layer_print_min[1]} MESH_MAX={first_layer_print_max[0]},{first_layer_print_max[1]} LAYERS={total_layer_count} NOZZLE_SIZE={nozzle_diameter[0]}
+; Insert custom gcode here.
+_PRINT_START_PHASE_PREHEAT
+; Insert custom gcode here.
+_PRINT_START_PHASE_PROBING
+; Insert custom gcode here.
+_PRINT_START_PHASE_EXTRUDER
+; Insert custom gcode here.
+_PRINT_START_PHASE_PURGE
 
 ; This is the place to put slicer purge lines if you haven't set a non-zero
-; variable_start_purge_length to have START_PRINT automatically purge (e.g. if
-; using a Mosaic Palette, which requires the slicer to generate the purge).
+; variable_start_purge_length to have START_PRINT automatically calculate and 
+; perform the purge (e.g. if using a Mosaic Palette, which requires the slicer
+; to generate the purge).
 ```
 
 #### End G-code
@@ -307,11 +316,20 @@ configuration steps listed below.
 ```
 M190 S0
 M109 S0
-PRINT_START EXTRUDER={material_print_temperature_layer_0} BED={material_bed_temperature_layer_0} NOZZLE_SIZE={machine_nozzle_size}
+_PRINT_START_PHASE_INIT EXTRUDER={material_print_temperature_layer_0} BED={material_bed_temperature_layer_0} NOZZLE_SIZE={machine_nozzle_size}
+; Insert custom gcode here.
+_PRINT_START_PHASE_PREHEAT
+; Insert custom gcode here.
+_PRINT_START_PHASE_PROBING
+; Insert custom gcode here.
+_PRINT_START_PHASE_EXTRUDER
+; Insert custom gcode here.
+_PRINT_START_PHASE_PURGE
 
 ; This is the place to put slicer purge lines if you haven't set a non-zero
-; variable_start_purge_length to have START_PRINT automatically purge (e.g. if
-; using a Mosaic Palette, which requires the slicer to generate the purge).
+; variable_start_purge_length to have START_PRINT automatically calculate and 
+; perform the purge (e.g. if using a Mosaic Palette, which requires the slicer
+; to generate the purge).
 ```
 
 #### End G-code
@@ -470,6 +488,39 @@ Corresponding LCD menus for sheet selection and babystepping will be added to
 adjustments made in the LCD menus, console, or other clients (e.g. Mainsail,
 Fluidd) will be applied to the current sheet and persisted across restarts.
 
+#### `ADJUST_SURFACE_OFFSETS`
+
+Adjusts surface offsets to account for changes in the Z endstop position or
+probe Z offset. A message to invoke this command will be shown in the console
+when a relevant change is made to `printer.cfg`.
+
+* `IGNORE` - Set to 1 to reset the saved offsets without adjusting the surfaces.
+
+#### `LOAD_SURFACE_MESH`
+
+Attempts to load a mesh associated with the specified surface.
+
+* `SURFACE` *(default: current surface)* - Bed surface.
+
+#### `MAKE_SURFACE_MESH`
+
+Generates a mesh associated with the specified surface. If
+`variable_start_try_saved_surface_mesh` is true then `START_PRINT` will load
+this mesh when the surface is selected (and skip the mesh leveling step if it
+was specified).
+
+* `BED` - *(default: 70)* Bed temperature when probing the bed.
+* `EXTRUDER` - *(default: `variable_start_extruder_probing_temp`)* Extruder
+  temperature when probing the bed.
+* `SURFACE` *(default: current surface)* - Bed surface.
+* `MESH_MULTIPLIER` *(default: 2)* - Increases the mesh density by the specified
+  integer value while preserving the existing mesh points and relative reference
+  index. A value of `1` leaves the mesh unmodified, `2` doubles the density, `3`
+  triples it, etc. (I.e. if `bed_mesh` specifies `probe_count: 5,5` and
+  `MESH_MULTIPLIER=2` then this macro will generate a 9x9 grid, whereas
+  `MESH_MULTIPLIER=3` will generate a 13x13 grid.)
+* *See Klipper `BED_MESH_CALIBRATE` documentation for additional arguments.*
+
 #### `SET_SURFACE_ACTIVE`
 
 Sets the provided surface active (from one listed in listed in
@@ -491,14 +542,6 @@ argument for `OFFSET` is provided the current offset is displayed.
 > **Note:** The `SET_GCODE_OFFSET` macro is overridden to update the
 > offset for the active surface. This makes the bed surface work with Z offset
 > adjustments made via any interface or client.
-
-#### `ADJUST_SURFACE_OFFSETS`
-
-Adjusts surface offsets to account for changes in the Z endstop position or
-probe Z offset. A message to invoke this command will be shown in the console
-when a relevant change is made to `printer.cfg`.
-
-* `IGNORE` - Set to 1 to reset the saved offsets without adjusting the surfaces.
 
 ### Beep
 
@@ -866,14 +909,6 @@ These are the customization options you can add to your
   probing that use the nozzle directly. When this value is provided
   `variable_start_extruder_preheat_scale` is ignored.
 
-* `variable_start_gcode_before_print` *(default: None)* - Optional user-supplied
-  gcode run after any leveling operations are complete and the bed, extruder,
-  and chamber are all stabilized at their target temperatures. Immediately after
-  this gcode executes the purge line will be printed (if specified) and then the
-  file from the virtual sdcard will begin printing. This is a useful to add any
-  probe docking commands, loading from a multi-material unit, or other
-  operations that must occur before any filament is extruded.
-
 * `variable_start_level_bed_at_temp` *(default: True if `bed_mesh` configured
   )* - If true the `PRINT_START` macro will run [`BED_MESH_CALIBRATE_FAST`](
   #bed-mesh-improvements) after the bed has stabilized at its target
@@ -902,6 +937,12 @@ These are the customization options you can add to your
   `quad_gantry_level` configured)* - If true the `PRINT_START` macro will run
   `QUAD_GANTRY_LEVEL` after the bed has stabilized at its target temperature.
 
+* `variable_start_try_saved_surface_mesh` *(default: False)* If enabled and
+  `bed_mesh.profiles` contains a matching mesh for the currently select bed
+  surface, then the mesh will be loaded from the saved profile (and
+  [`BED_MESH_CALIBRATE_FAST`](#bed-mesh-improvements) will be skipped if
+  it would have been run otherwise).
+
 * `variable_start_z_tilt_adjust_at_temp`  *(default: True if `z_tilt`
   configured)* - If true the `PRINT_START` macro will run `Z_TILT_ADJUST` after
   the bed has stabilized at its target temperature.
@@ -928,6 +969,23 @@ gcode:
   account for customizations specific to your printer. E.g. If you have a
   dockable probe you may choose to wrap `BED_MESH_CALIBRATE` with the
   appropriate docking/undocking commands.
+
+#### `PRINT_START` Phases
+
+The recommended slicer start gcode breaks `PRINT_START` into the phases below.
+This approach allows for pausing or cancelling, and inserting custom gcode
+between the phases (e.g. to set status LEDs, deploy/dock probes, load filament).
+The phases are described in order below:
+
+* `_PRINT_START_PHASE_INIT` - Initializes the `PRINT_START` settings, and begins
+  heating the bed and chamber.
+* `_PRINT_START_PHASE_PREHEAT` - Stabilizes the bed and (if applicable) chamber
+  at the target temperatures. Also homes the axes while heating is in progress.
+* `_PRINT_START_PHASE_PROBING` - Performs probing operations, including mesh
+  bed calibration, quad gantry leveling, etc.
+* `_PRINT_START_PHASE_EXTRUDER` - Stabilizes the extruder at the target
+  temperature.
+* `_PRINT_START_PHASE_PURGE` - Extrudes a purge line in front of the print area.
 
 #### `PRINT_END`
 
