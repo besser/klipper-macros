@@ -228,6 +228,7 @@ filename: ~/printer_data/variables.cfg # UPDATE THIS FOR YOUR PATH!!!
 
 [virtual_sdcard]
 path: ~/gcode_files # UPDATE THIS FOR YOUR PATH!!!
+on_error_gcode: CANCEL_PRINT
 
 [display_status]
 ```
@@ -259,6 +260,17 @@ _PRINT_START_PHASE_PURGE
 ; variable_start_purge_length to have START_PRINT automatically calculate and 
 ; perform the purge (e.g. if using a Mosaic Palette, which requires the slicer
 ; to generate the purge).
+```
+
+#### Additional SuperSlicer Start G-code
+
+If you're using SuperSlicer you can add the following immediately before the
+`PRINT_START` line from above. This will perform some added bounds checking and
+will allow you to use the random print relocation feature without requiring
+`exclude_object` entries in the print file.
+
+```
+PRINT_START_SET MODEL_MIN={bounding_box[0]},{bounding_box[1]} MODEL_MAX={bounding_box[3]},{bounding_box[4]}
 ```
 
 #### End G-code
@@ -734,13 +746,20 @@ when the `O` argument is included (equivalent to the same argument in Marlin).
 See Klipper `G28` documentation for general information and detail on the other
 arguments.
 
-* `O` - Omits axes from the homing procedure if they are already homed.
+* `O` - Omits already homed axes from the homing procedure.
 
 > **Note:** If you have a `[homing_override]` section you will need to update
 > any `G28` commands in the gcode part to use `G28.6245197` instead (which is
 > the renamed version of Klipper's built-in `G28`). Failure to do this will
 > cause `G28` commands to error out with the message ***Macro G28 called
 > recursively***.
+
+#### `LAZY_HOME`
+
+Homes the specified axes; by default omits any axes that are already homed.
+
+* `AXES` *(default: XYZ)* - List of axes to home.
+* `LAZY` *(default: 1)* - Omits already homed axes from the homing procedure.
 
 ### Layer Triggers
 
@@ -922,7 +941,7 @@ These are the customization options you can add to your
   adjustments after the print completes or is cancelled (e.g. feedrate,
   flow percentage).
 
-* `variable_start_purge_clearance` *(default: 5.0)* Distance (in millimeters)
+* `variable_start_purge_clearance` *(default: 5.0)* - Distance (in millimeters)
   between the purge lines and the print area (if a `start_purge_length` is
   provided).
 
@@ -930,14 +949,29 @@ These are the customization options you can add to your
   millimeters) to purge after the extruder finishes heating and prior to
   starting the print. For most setups `30` is a good starting point.
 
-* `variable_start_purge_prime_length` *(default: 10.0)* Length of filament (in
+* `variable_start_purge_prime_length` *(default: 10.0)* - Length of filament (in
   millimeters) to prime the extruder before drawing the purge lines.
 
 * `variable_start_quad_gantry_level_at_temp` *(default: True if
   `quad_gantry_level` configured)* - If true the `PRINT_START` macro will run
   `QUAD_GANTRY_LEVEL` after the bed has stabilized at its target temperature.
 
-* `variable_start_try_saved_surface_mesh` *(default: False)* If enabled and
+* `variable_start_random_placement_max` *(default: 0)* - A positive value
+  specifies the +/- distance in the XY axes that the print can be randomly
+  relocated (assuming the bed has sufficient space). This can help reduce bed
+  wear from repeatedly printing in the same spot. Note that this feature
+  requires additional information to determine the proper bounds of the
+  relocated print. As such, `START_PRINT` must have valid `MESH_MIN`/`MESH_MAX`
+  parameters, and either `MODEL_MIN`/`MODEL_MAX` must be set or the print file
+  must include `EXCLUDE_OBJECT_DEFINE` statements with `POLYGON` lists that
+  define the bounds of the objects ([see `exclude_object` for more information](
+  https://www.klipper3d.org/Exclude_Object.html)).
+
+* `variable_start_random_placement_padding` *(default: 10.0)* - The minimum
+  distance the relocated print will be placed from the printable edge of the
+  bed.
+
+* `variable_start_try_saved_surface_mesh` *(default: False)* - If enabled and
   `bed_mesh.profiles` contains a matching mesh for the currently select bed
   surface, then the mesh will be loaded from the saved profile (and
   [`BED_MESH_CALIBRATE_FAST`](#bed-mesh-improvements) will be skipped if
@@ -992,6 +1026,79 @@ The phases are described in order below:
 Parks the printhead, shuts down heaters, fans, etc, and performs general state
 housekeeping at the end of the print (called from the slicer's print end
 g-code).
+
+### Print Status Events
+
+> **Note:** This is a brand new feature that will likely evolve in the near
+> future. Statuses will probably be added and/or removed as I get a better sense
+> of how they're being used. _**Keep that in mind as you integrate this into
+> your own setup.**_
+
+The following events are fired during during the printing process, and the
+`GCODE_ON_PRINT_STATUS` command associates custom gcode with these events. This
+custom gcode can be used to set LEDs, emit beeps, or perform any other
+operations you may want to run at a given status in the printing process.
+
+* `ready` - Printer is ready to receive a job
+* `filament_load` - Loading filament
+* `filament_unload` - Unloading filament
+* `bed_heating` - Waiting for the bed to reach target
+* `chamber_heating` - Waiting for the chamber to reach target
+* `homing` - Homing any axis
+* `leveling_gantry` - Performing quad gantry-leveling
+* `calibrating_z` - Performing z-tilt adjustment
+* `meshing` - Calibrating a bed mesh
+* `extruder_heating` - Waiting for the extruder to reach target
+* `purging` - Printing purge line
+* `printing` - Actively printing
+* `pausing` - Print is paused
+* `cancelling` - Print is being cancelled
+* `completing` - Print completing (does not fire on a cancelled print)
+
+#### `GCODE_ON_PRINT_STATUS`
+
+Associates a gcode command with a specific status and sets the parameters for
+when and how the status event fires.
+
+* `STATUS` - The status event this command is associated with.
+* `COMMAND` - The text of the command.
+* `ARGS` *(default: `0`)* - Set to `1` to enable passing the following status
+  arguments to the macro: `TYPE`, `WHEN`, `LAST_STATUS`, and `NEXT_STATUS`.
+  This is useful if calling a custom macro that determines its behavior based
+  on the exact details of the state transition.
+* `FILTER_ENTER` - An optional list of statuses that, if provided, will prevent
+  the command from firing unless the last status matches a status in the list.
+* `FILTER_LEAVE` - An optional list of statuses that, if provided, will prevent
+  the command from firing unless the next status matches a status in the list.
+* `TYPE` *(default: `ENTER`)* - If set to `ENTER` the command is run when
+  entering the specified status. If set to `LEAVE` the command is run when
+  leaving the specified status. If set to `BOTH` the command is run when
+  entering and leaving. The `LEAVE` commands are processed first, followed by
+  the `ENTER` commands, all in the order they were originally set.
+* `WHEN` *(default: `PRINTING`)* - Set to `PRINTING` to fire the status event
+  only when printing, `IDLE` when not printing, and `ALWAYS` for both.
+
+#### Print Status Event Example
+
+Below is a simple example of how to set up a status event config. The calls to
+`GCODE_ON_PRINT_STATUS` are placed in the `gcode` of the
+`[gcode_macro _km_options]` config section, so that they will be run once at
+printer start. When the printer enters the `ready` state at startup the command
+will echo *` TYPE=LEAVE WHEN=IDLE LAST_STATUS=none NEXT_STATUS=ready`* to the
+console, and when it leaves the `ready` state to begin printing it will echo
+*`TYPE=ENTER WHEN=PRINTING LAST_STATUS=ready NEXT_STATUS=homing`*.
+
+```
+[gcode_macro _km_options]
+# Any options variables declared here
+gcode:
+  GCODE_ON_PRINT_STATUS STATUS=ready COMMAND="STATUS_TEST" ARGS=1 WHEN=ALWAYS TYPE=BOTH
+
+[gcode_macro status_test]
+variable_extruder: 0
+gcode:
+  M118 STATUS_TEST {rawparams}
+```
 
 ### Velocity
 
